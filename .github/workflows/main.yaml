@@ -48,9 +48,13 @@ jobs:
     # 4. Push the image to Artifactory with Build Info
 
       - name: Gate 1
-        run: |
+        
           # Shifts security left by scanning the ausemartweb.csproj dependencies
           # Fails the build if vulnerabilities 'High' or above are detected
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
+        run: |
           jf audit --fail=true --min-severity=High
 
       - name: Build & Publish Binaries
@@ -66,12 +70,19 @@ jobs:
           docker tag ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} trial7144t5.jfrog.io/docker-local/ausemartweb:${{ env.JF_BUILD_NUMBER }}
         # Image Scan will be done in the next step    
       - name: Gate 2
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         run: |
           # Scans the image locally before it ever touches your registry
           # Verifies OS-level packages in the mcr.microsoft.com/dotnet/aspnet:6.0 runtime
           jf docker scan ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} --fail=true
 
       - name: Push to Artifactory
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
+          
         run: |
           # Push image and capture Build Info for full traceability
           jf docker push trial7144t5.jfrog.io/docker-local/ausemartweb:${{ env.JF_BUILD_NUMBER }} \
@@ -79,6 +90,10 @@ jobs:
             --build-number=${{ env.JF_BUILD_NUMBER }}          
         # Build Publish & Scan will be done in the final step    
       - name: Final Gate
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
+
         run: |
           # Collect environment variables and publish metadata
           jf rt build-collect-env ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }}
