@@ -45,6 +45,10 @@ jobs:
         with:
           dotnet-version: '6.0.x' 
 
+      - name: Restore Dependencies
+        run: dotnet restore
+        # This creates the 'obj/project.assets.json' file that Xray needs
+
       - name: Gate 1 (Audit Source Code)
         run: |
           # Now this will find the Xray URL in the config and succeed
