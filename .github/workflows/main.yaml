@@ -30,6 +30,9 @@ jobs:
         # v4 automatically seeds the 'setup-jfrog-cli-server' config
     
       - name: Configure JFrog Context
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         run: |
           # Use the server ID hand-delivered by the setup action
           jf c use setup-jfrog-cli-server
