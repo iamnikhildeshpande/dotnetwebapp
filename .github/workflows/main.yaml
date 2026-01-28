@@ -26,7 +26,9 @@ jobs:
         uses: jfrog/setup-jfrog-cli@v4
         env:
           JF_URL: ${{ env.JF_URL }}
+          JF_XRAY_URL: https://trial7144t5.jfrog.io/xray
           JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
+
         # v4 automatically seeds the 'setup-jfrog-cli-server' config
 
       - name: Setup .NET
@@ -45,6 +47,7 @@ jobs:
       - name: Gate 1
         env:
           JF_URL: ${{ env.JF_URL }}
+          JF_XRAY_URL: https://trial7144t5.jfrog.io/xray
           JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
           JF_BUILD_NAME: ${{ env.JF_BUILD_NAME }}
           JF_BUILD_NUMBER: ${{ env.JF_BUILD_NUMBER }}
