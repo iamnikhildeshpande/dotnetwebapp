@@ -1,0 +1,84 @@
+name: "Aus-E-Mart DevSecOps Pipeline"
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# Centralized environment variables for traceability
+env:
+  JF_URL: ${{ secrets.JF_URL }}
+  JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
+  JF_BUILD_NAME: "ausemart-web-app"
+  JF_BUILD_NUMBER: ${{ github.run_id }}
+  # Replace with your specific Artifactory repository names
+  DOCKER_REPO: "docker-local" 
+  IMAGE_NAME: "ausemartweb"
+  #TARGET_IMAGE: trial7144t5.jfrog.io/docker-local/ausemartweb:${{ github.run_id }}
+
+jobs:
+  build-and-secure:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        # v4 automatically seeds the 'setup-jfrog-cli-server' config
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x' # Matches TargetFramework in .csproj
+
+      - name: Configure JFrog Context
+        run: |
+          # Use the server ID hand-delivered by the setup action
+          jf c use setup-jfrog-cli-server
+
+    # The following steps implement the DevSecOps pipeline
+    # 1. Shift security left by scanning source dependencies
+    # 2. Build the application and Docker image
+    # 3. Scan the image locally before pushing
+    # 4. Push the image to Artifactory with Build Info
+
+      - name: Gate 1
+        run: |
+          # Shifts security left by scanning the ausemartweb.csproj dependencies
+          # Fails the build if vulnerabilities 'High' or above are detected
+          jf audit --fail=true --min-severity=High
+
+      - name: Build & Publish Binaries
+        run: |
+          # Standard .NET build process mirrored in your Dockerfile
+          dotnet build --configuration Release
+          dotnet publish -c Release -o ./publish
+
+      - name: Build Docker Image
+        run: |
+          # Uses your multi-stage Dockerfile to create the container
+          docker build -t ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} .
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} trial7144t5.jfrog.io/docker-local/ausemartweb:${{ env.JF_BUILD_NUMBER }}
+        # Image Scan will be done in the next step    
+      - name: Gate 2
+        run: |
+          # Scans the image locally before it ever touches your registry
+          # Verifies OS-level packages in the mcr.microsoft.com/dotnet/aspnet:6.0 runtime
+          jf docker scan ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} --fail=true
+
+      - name: Push to Artifactory
+        run: |
+          # Push image and capture Build Info for full traceability
+          jf docker push trial7144t5.jfrog.io/docker-local/ausemartweb:${{ env.JF_BUILD_NUMBER }} \
+            --build-name=${{ github.workflow }} \
+            --build-number=${{ env.JF_BUILD_NUMBER }}          
+        # Build Publish & Scan will be done in the final step    
+      - name: Final Gate
+        run: |
+          # Collect environment variables and publish metadata
+          jf rt build-collect-env ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }}
+          jf rt build-publish ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }}
+          
+          # Final verification of the aggregated build in Xray
+          # Ensures the 'Gold' image meets organizational compliance
+          jf build-scan ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }} --fail=true
