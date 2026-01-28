@@ -4,20 +4,15 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-# GLOBAL ENVIRONMENT (Available to ALL steps automatically)
 env:
   JF_URL: ${{ secrets.JF_URL }}
   JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
-  JF_XRAY_URL: https://trial7144t5.jfrog.io/xray
+  JF_XRAY_URL: https://trial7144t5.jfrog.io/xray # Ensure this is correct
   
-  # SINGLE SOURCE OF TRUTH FOR TRACEABILITY
   JF_BUILD_NAME: "ausemart-web-app"
   JF_BUILD_NUMBER: ${{ github.run_id }}
-  
-  # Image Details
-  DOCKER_REPO: "docker-local"
+  DOCKER_REPO: "docker-local" 
   IMAGE_NAME: "ausemartweb"
-  # Define the full target path here to avoid typos later
   TARGET_IMAGE: "trial7144t5.jfrog.io/docker-local/ausemartweb:${{ github.run_id }}"
 
 jobs:
@@ -27,30 +22,32 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # Setup JFrog CLI (V4 picks up the Global ENV vars automatically)
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         env:
           JF_URL: ${{ env.JF_URL }}
           JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
-          # Explicitly passing Xray URL to ensure 'jf audit' and 'scan' work
-          JF_XRAY_URL: ${{ env.JF_XRAY_URL }}
+          # The action might ignore JF_XRAY_URL, so we fix it in the next step
+
+      - name: Fix CLI Configuration (The Magic Step)
+        run: |
+          # We manually update the configuration to ENSURE Xray is set
+          # 'setup-jfrog-cli-server' is the default ID created by the setup action
+          jf c add setup-jfrog-cli-server \
+            --url=${{ env.JF_URL }} \
+            --xray-url=${{ env.JF_XRAY_URL }} \
+            --access-token=${{ env.JF_ACCESS_TOKEN }} \
+            --interactive=false \
+            --overwrite
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '6.0.x'
+          dotnet-version: '6.0.x' 
 
-      # GATE 1: Dependency Scan (Shift Left)
       - name: Gate 1 (Audit Source Code)
-        env:
-          JF_URL: ${{ env.JF_URL }}
-          JF_XRAY_URL: ${{ env.JF_XRAY_URL }}
-          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
-          JF_BUILD_NAME: ${{ env.JF_BUILD_NAME }}
-          JF_BUILD_NUMBER: ${{ env.JF_BUILD_NUMBER }}
         run: |
-          # Scans the .csproj files for vulnerable NuGet packages
+          # Now this will find the Xray URL in the config and succeed
           jf audit --fail=true --min-severity=High
 
       - name: Build & Publish Binaries
@@ -61,30 +58,22 @@ jobs:
       - name: Build Docker Image
         run: |
           docker build -t ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} .
-          # Tag it for Artifactory
           docker tag ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} ${{ env.TARGET_IMAGE }}
 
-      # GATE 2: Local Container Scan
       - name: Gate 2 (Local Image Scan)
         run: |
-          # Scans the local docker image BEFORE it leaves the runner
           jf docker scan ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} --fail=true --min-severity=High
 
-      - name: Push to Artifactory (Traceability)
+      - name: Push to Artifactory
         run: |
-          # CRITICAL FIX: Use the SAME build name as defined in ENV
           jf docker push ${{ env.TARGET_IMAGE }} \
             --build-name=${{ env.JF_BUILD_NAME }} \
             --build-number=${{ env.JF_BUILD_NUMBER }}
 
-      # FINAL GATE: Compliance Scan
       - name: Final Gate (Build Scan)
         run: |
-          # 1. Collect environment variables (Git commit, Runner info)
           jf rt build-collect-env ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }}
-          
-          # 2. Publish the Build Info (Links the artifacts from the Push step)
           jf rt build-publish ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }}
           
-          # 3. Scan the Published Build (Ensures the 'Gold' copy is secure)
+          # This also relies on Xray, so the fix above ensures this works too
           jf build-scan ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }} --fail=true
