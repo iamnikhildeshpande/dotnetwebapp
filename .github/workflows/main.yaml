@@ -28,10 +28,6 @@ jobs:
           JF_URL: ${{ env.JF_URL }}
           JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         # v4 automatically seeds the 'setup-jfrog-cli-server' config
-      - name: Verify JFrog connection
-        env:
-          JF_URL: ${{ env.JF_URL }}
-        run: jf rt ping  
     
 #      - name: Configure JFrog Context
 #        run: |
