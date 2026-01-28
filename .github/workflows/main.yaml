@@ -24,22 +24,24 @@ jobs:
 
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         # v4 automatically seeds the 'setup-jfrog-cli-server' config
+      - name: Verify JFrog connection
+        run: jf rt ping  
     
-      - name: Set Default Server
-        run: |
-          # 1. Tell the CLI to use the server created by the Action
-          jf c use setup-jfrog-cli-server  
+#      - name: Configure JFrog Context
+#        run: |
+#          # Use the server ID hand-delivered by the setup action
+#          jf c use setup-jfrog-cli-server
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x' # Matches TargetFramework in .csproj
 
-#      - name: Configure JFrog Context
-#        run: |
-#          # Use the server ID hand-delivered by the setup action
-#          jf c use setup-jfrog-cli-server
+
 
     # The following steps implement the DevSecOps pipeline
     # 1. Shift security left by scanning source dependencies
