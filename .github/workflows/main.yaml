@@ -43,6 +43,12 @@ jobs:
 
       # GATE 1: Dependency Scan (Shift Left)
       - name: Gate 1 (Audit Source Code)
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_XRAY_URL: ${{ env.JF_XRAY_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
+          JF_BUILD_NAME: ${{ env.JF_BUILD_NAME }}
+          JF_BUILD_NUMBER: ${{ env.JF_BUILD_NUMBER }}
         run: |
           # Scans the .csproj files for vulnerable NuGet packages
           jf audit --fail=true --min-severity=High
