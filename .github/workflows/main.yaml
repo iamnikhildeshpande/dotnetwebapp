@@ -4,17 +4,21 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-# Centralized environment variables for traceability
+# GLOBAL ENVIRONMENT (Available to ALL steps automatically)
 env:
   JF_URL: ${{ secrets.JF_URL }}
   JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
   JF_XRAY_URL: https://trial7144t5.jfrog.io/xray
+  
+  # SINGLE SOURCE OF TRUTH FOR TRACEABILITY
   JF_BUILD_NAME: "ausemart-web-app"
   JF_BUILD_NUMBER: ${{ github.run_id }}
-  # Replace with your specific Artifactory repository names
-  DOCKER_REPO: "docker-local" 
+  
+  # Image Details
+  DOCKER_REPO: "docker-local"
   IMAGE_NAME: "ausemartweb"
-  #TARGET_IMAGE: trial7144t5.jfrog.io/docker-local/ausemartweb:${{ github.run_id }}
+  # Define the full target path here to avoid typos later
+  TARGET_IMAGE: "trial7144t5.jfrog.io/docker-local/ausemartweb:${{ github.run_id }}"
 
 jobs:
   build-and-secure:
@@ -23,92 +27,58 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # Setup JFrog CLI (V4 picks up the Global ENV vars automatically)
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         env:
           JF_URL: ${{ env.JF_URL }}
-          JF_XRAY_URL: https://trial7144t5.jfrog.io/xray
           JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
-
-        # v4 automatically seeds the 'setup-jfrog-cli-server' config
+          # Explicitly passing Xray URL to ensure 'jf audit' and 'scan' work
+          JF_XRAY_URL: ${{ env.JF_XRAY_URL }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '6.0.x' # Matches TargetFramework in .csproj
+          dotnet-version: '6.0.x'
 
-
-
-    # The following steps implement the DevSecOps pipeline
-    # 1. Shift security left by scanning source dependencies
-    # 2. Build the application and Docker image
-    # 3. Scan the image locally before pushing
-    # 4. Push the image to Artifactory with Build Info
-
-      - name: Gate 1
-        env:
-          JF_URL: ${{ env.JF_URL }}
-          JF_XRAY_URL: https://trial7144t5.jfrog.io/xray
-          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
-          JF_BUILD_NAME: ${{ env.JF_BUILD_NAME }}
-          JF_BUILD_NUMBER: ${{ env.JF_BUILD_NUMBER }}
-
-          # Shifts security left by scanning the ausemartweb.csproj dependencies
-          # Fails the build if vulnerabilities 'High' or above are detected
-
+      # GATE 1: Dependency Scan (Shift Left)
+      - name: Gate 1 (Audit Source Code)
         run: |
+          # Scans the .csproj files for vulnerable NuGet packages
           jf audit --fail=true --min-severity=High
 
       - name: Build & Publish Binaries
-        env:
-          JF_URL: ${{ env.JF_URL }}
-          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         run: |
-          # Standard .NET build process mirrored in your Dockerfile
           dotnet build --configuration Release
           dotnet publish -c Release -o ./publish
 
       - name: Build Docker Image
-        env:
-          JF_URL: ${{ env.JF_URL }}
-          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         run: |
-          # Uses your multi-stage Dockerfile to create the container
           docker build -t ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} .
-          docker tag ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} trial7144t5.jfrog.io/docker-local/ausemartweb:${{ env.JF_BUILD_NUMBER }}
-        # Image Scan will be done in the next step    
-      - name: Gate 2
-        env:
-          JF_URL: ${{ env.JF_URL }}
-          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
-        run: |
-          # Scans the image locally before it ever touches your registry
-          # Verifies OS-level packages in the mcr.microsoft.com/dotnet/aspnet:6.0 runtime
-          jf docker scan ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} --fail=true
+          # Tag it for Artifactory
+          docker tag ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} ${{ env.TARGET_IMAGE }}
 
-      - name: Push to Artifactory
-        env:
-          JF_URL: ${{ env.JF_URL }}
-          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
-
+      # GATE 2: Local Container Scan
+      - name: Gate 2 (Local Image Scan)
         run: |
-          # Push image and capture Build Info for full traceability
-          jf docker push trial7144t5.jfrog.io/docker-local/ausemartweb:${{ env.JF_BUILD_NUMBER }} \
-            --build-name=${{ github.workflow }} \
-            --build-number=${{ env.JF_BUILD_NUMBER }}          
-        # Build Publish & Scan will be done in the final step    
-      - name: Final Gate
-        env:
-          JF_URL: ${{ env.JF_URL }}
-          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
-          JF_BUILD_NAME: ${{ env.JF_BUILD_NAME }}
-          JF_BUILD_NUMBER: ${{ env.JF_BUILD_NUMBER }}
+          # Scans the local docker image BEFORE it leaves the runner
+          jf docker scan ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} --fail=true --min-severity=High
 
+      - name: Push to Artifactory (Traceability)
         run: |
-          # Collect environment variables and publish metadata
+          # CRITICAL FIX: Use the SAME build name as defined in ENV
+          jf docker push ${{ env.TARGET_IMAGE }} \
+            --build-name=${{ env.JF_BUILD_NAME }} \
+            --build-number=${{ env.JF_BUILD_NUMBER }}
+
+      # FINAL GATE: Compliance Scan
+      - name: Final Gate (Build Scan)
+        run: |
+          # 1. Collect environment variables (Git commit, Runner info)
           jf rt build-collect-env ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }}
+          
+          # 2. Publish the Build Info (Links the artifacts from the Push step)
           jf rt build-publish ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }}
           
-          # Final verification of the aggregated build in Xray
-          # Ensures the 'Gold' image meets organizational compliance
+          # 3. Scan the Published Build (Ensures the 'Gold' copy is secure)
           jf build-scan ${{ env.JF_BUILD_NAME }} ${{ env.JF_BUILD_NUMBER }} --fail=true
