@@ -28,14 +28,6 @@ jobs:
           JF_URL: ${{ env.JF_URL }}
           JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         # v4 automatically seeds the 'setup-jfrog-cli-server' config
-    
-      - name: Configure JFrog Context
-        env:
-          JF_URL: ${{ env.JF_URL }}
-          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
-        run: |
-          # Use the server ID hand-delivered by the setup action
-          jf c use setup-jfrog-cli-server
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -51,7 +43,12 @@ jobs:
     # 4. Push the image to Artifactory with Build Info
 
       - name: Gate 1
-        
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
+          JF_BUILD_NAME: ${{ env.JF_BUILD_NAME }}
+          JF_BUILD_NUMBER: ${{ env.JF_BUILD_NUMBER }}
+
           # Shifts security left by scanning the ausemartweb.csproj dependencies
           # Fails the build if vulnerabilities 'High' or above are detected
 
@@ -59,26 +56,36 @@ jobs:
           jf audit --fail=true --min-severity=High
 
       - name: Build & Publish Binaries
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         run: |
           # Standard .NET build process mirrored in your Dockerfile
           dotnet build --configuration Release
           dotnet publish -c Release -o ./publish
 
       - name: Build Docker Image
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         run: |
           # Uses your multi-stage Dockerfile to create the container
           docker build -t ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} .
           docker tag ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} trial7144t5.jfrog.io/docker-local/ausemartweb:${{ env.JF_BUILD_NUMBER }}
         # Image Scan will be done in the next step    
       - name: Gate 2
-
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
         run: |
           # Scans the image locally before it ever touches your registry
           # Verifies OS-level packages in the mcr.microsoft.com/dotnet/aspnet:6.0 runtime
           jf docker scan ${{ env.IMAGE_NAME }}:${{ env.JF_BUILD_NUMBER }} --fail=true
 
       - name: Push to Artifactory
-
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
 
         run: |
           # Push image and capture Build Info for full traceability
@@ -87,7 +94,11 @@ jobs:
             --build-number=${{ env.JF_BUILD_NUMBER }}          
         # Build Publish & Scan will be done in the final step    
       - name: Final Gate
-
+        env:
+          JF_URL: ${{ env.JF_URL }}
+          JF_ACCESS_TOKEN: ${{ env.JF_ACCESS_TOKEN }}
+          JF_BUILD_NAME: ${{ env.JF_BUILD_NAME }}
+          JF_BUILD_NUMBER: ${{ env.JF_BUILD_NUMBER }}
 
         run: |
           # Collect environment variables and publish metadata
